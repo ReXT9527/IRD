@@ -1,0 +1,44 @@
+{
+  "datasets": {
+    "harmbench": {
+      "path": "data/eval-data/harmbench.jsonl",
+      "expected_decision_label": "refuse"
+    },
+    "strongreject": {
+      "path": "data/eval-data/strongreject.jsonl",
+      "expected_decision_label": "refuse"
+    },
+    "advbench": {
+      "path": "data/eval-data/advbench.jsonl",
+      "expected_decision_label": "refuse"
+    },
+    "wj_eval_harmful": {
+      "path": "data/eval-data/wj_eval_harmful.jsonl",
+      "expected_decision_label": "refuse"
+    },
+    "xstest_benign": {
+      "path": "data/eval-data/xstest_benign.jsonl",
+      "expected_decision_label": "allow"
+    },
+    "aime24": {
+      "path": "data/eval-data/aime24.jsonl",
+      "expected_decision_label": "allow"
+    },
+    "math500": {
+      "path": "data/eval-data/math500.jsonl",
+      "expected_decision_label": "allow"
+    },
+    "gpqa": {
+      "path": "data/eval-data/gpqa.jsonl",
+      "expected_decision_label": "allow"
+    },
+    "gsm8k": {
+      "path": "data/eval-data/gsm8k.jsonl",
+      "expected_decision_label": "allow"
+    },
+    "mbpp": {
+      "path": "data/eval-data/mbpp.jsonl",
+      "expected_decision_label": "allow"
+    }
+  }
+}

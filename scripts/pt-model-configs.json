@@ -1,0 +1,131 @@
+{
+    "microsoft/Phi-4-mini-reasoning": {
+        "system_prompt": "Your name is Phi, an AI math expert developed by Microsoft.",
+        "temperature": 0.8,
+        "top_p": 0.95
+    },
+    "nvidia/Nemotron-Research-Reasoning-Qwen-1.5B": {
+        "temperature": 0.6,
+        "top_p": 0.95
+    },
+    "prithivMLmods/rStar-Coder-Qwen3-0.6B": {
+        "system_prompt": "You are a scientific tutor skilled in code, math, and reasoning.",
+        "temperature": 0.6,
+        "top_p": 0.95
+    },
+    "simplescaling/s1.1-32B": {
+        "system_prompt": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.",
+        "prompt_format": "qwen_chatml",
+        "decode_profile": "s1",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "simplescaling/s1.1-14B": {
+        "system_prompt": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.",
+        "prompt_format": "qwen_chatml",
+        "decode_profile": "s1",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "simplescaling/s1.1-7B": {
+        "system_prompt": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.",
+        "prompt_format": "qwen_chatml",
+        "decode_profile": "s1",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "s1.1": {
+        "system_prompt": "You are Qwen, created by Alibaba Cloud. You are a helpful assistant.",
+        "prompt_format": "qwen_chatml",
+        "decode_profile": "s1",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-7B": {
+        "system_prompt": "",
+        "prompt_format": "deepseek_r1",
+        "decode_profile": "xml_cot",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "deepseek-ai/DeepSeek-R1-Distill-Llama-8B": {
+        "system_prompt": "",
+        "prompt_format": "deepseek_r1",
+        "decode_profile": "xml_cot",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "qwen-r1": {
+        "system_prompt": "",
+        "prompt_format": "deepseek_r1",
+        "decode_profile": "xml_cot",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "llama-r1": {
+        "system_prompt": "",
+        "prompt_format": "deepseek_r1",
+        "decode_profile": "xml_cot",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "asas-ai/Llama-3.1-8B-Instruct-Open-R1-Distill": {
+        "system_prompt": "You are a helpful assistant.",
+        "prompt_format": "llama3",
+        "decode_profile": "xml_cot",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "bespokelabs/Bespoke-Stratos-7B": {
+        "system_prompt": "You are a helpful assistant.",
+        "prompt_format": "qwen_chatml",
+        "decode_profile": "xml_cot",
+        "decoding_strategy": "greedy",
+        "do_sample": false,
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "top_k": 0,
+        "repetition_penalty": 1.0
+    },
+    "ReasoningTransferability/UniReason-Qwen3-14B-RL": {
+        "temperature": 0.7,
+        "top_p": 1.0
+    }
+
+}
