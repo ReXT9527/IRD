@@ -125,11 +125,3 @@ python eval/eval_guard_prompt_safety.py \
   --tensor_parallel_size 2 \
   --no-local_files_only
 ```
-
-## Data Notes
-
-The release includes `data/ird.jsonl` for IRD training and non-jailbreak evaluation files under `data/eval-data/`. Jailbreak-attack files are intentionally not included in this package.
-
-## Anonymity Notes
-
-This package does not include model checkpoints, experiment outputs, baseline implementations, local cache paths, paper build artifacts, or user-specific logs. Generated adapters and evaluation outputs should remain under `outputs/`, which is ignored by `.gitignore`.
