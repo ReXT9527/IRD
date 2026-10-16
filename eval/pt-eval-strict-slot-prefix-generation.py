@@ -29,7 +29,12 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer, StoppingCriteria, StoppingCriteriaList
 
 def _load_local_module(module_name: str, file_path: Path):
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
     spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load {module_name} from {file_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -309,9 +314,9 @@ def _serialize_generation_budget(value: int | None) -> str | int:
     return int(value)
 
 
-def _resolve_requested_prompt_format(tokenizer, raw_prompt_format: str, model_cfg: dict[str, Any]) -> str:
+def _resolve_requested_prompt_format(tokenizer, raw_prompt_format: str, model_cfg: dict[str, Any] | None = None) -> str:
     requested = str(raw_prompt_format).strip().lower()
-    if requested == pt_utils.AUTO_PROMPT_FORMAT:
+    if requested == pt_utils.AUTO_PROMPT_FORMAT and isinstance(model_cfg, dict):
         configured = model_cfg.get("prompt_format", pt_utils.AUTO_PROMPT_FORMAT)
         return resolve_prompt_format(tokenizer, prompt_format=configured)
     return resolve_prompt_format(tokenizer, prompt_format=raw_prompt_format)
@@ -379,35 +384,60 @@ def _parse_nonnegative_int_arg(raw_value: str | int, *, arg_name: str) -> int:
 
 
 def _parse_slot_name_set(raw: str) -> list[str]:
-    names = list(dict.fromkeys(chunk.strip().lower() for chunk in str(raw).split(",") if chunk.strip()))
+    names = [chunk.strip().lower() for chunk in str(raw).split(",") if chunk.strip()]
     invalid = [name for name in names if name not in TRIPLET_SLOT_NAMES]
     if invalid:
         raise ValueError(f"Unsupported slot names in {raw!r}: {invalid}. Expected subset of {TRIPLET_SLOT_NAMES}.")
-    return names
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for name in names:
+        if name in seen:
+            continue
+        seen.add(name)
+        deduped.append(name)
+    return deduped
 
 
 def _parse_slot_budget_ratio(raw: str, *, expected_len: int) -> list[int]:
-    values = [int(chunk.strip()) for chunk in str(raw).split(",") if chunk.strip()]
-    if any(value <= 0 for value in values):
-        raise ValueError(f"slot budget ratios must be positive, got {values!r} from {raw!r}")
+    values: list[int] = []
+    for chunk in str(raw).split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        value = int(chunk)
+        if value <= 0:
+            raise ValueError(f"slot budget ratios must be positive, got {value} from {raw!r}")
+        values.append(value)
     if len(values) != int(expected_len):
         raise ValueError(f"Expected {expected_len} slot budget ratios, got {len(values)} from {raw!r}")
     return values
 
 
 def _parse_int_tuple(raw: str) -> tuple[int, ...]:
-    values = [int(chunk.strip()) for chunk in str(raw).split(",") if chunk.strip()]
-    if any(value < 0 for value in values):
-        raise ValueError(f"schedule boundaries must be >= 0, got {values!r} from {raw!r}")
+    values: list[int] = []
+    for chunk in str(raw).split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        value = int(chunk)
+        if value < 0:
+            raise ValueError(f"schedule boundaries must be >= 0, got {value} from {raw!r}")
+        values.append(value)
     if any(values[idx] >= values[idx + 1] for idx in range(len(values) - 1)):
         raise ValueError(f"schedule boundaries must be strictly increasing, got {values!r}")
     return tuple(values)
 
 
 def _parse_float_tuple(raw: str) -> tuple[float, ...]:
-    values = [float(chunk.strip()) for chunk in str(raw).split(",") if chunk.strip()]
-    if any(value < 0.0 for value in values):
-        raise ValueError(f"schedule strengths must be >= 0, got {values!r} from {raw!r}")
+    values: list[float] = []
+    for chunk in str(raw).split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        value = float(chunk)
+        if value < 0.0:
+            raise ValueError(f"schedule strengths must be >= 0, got {value} from {raw!r}")
+        values.append(value)
     return tuple(values)
 
 
@@ -540,7 +570,7 @@ def _write_prompt_rows(path: Path, rows: list[dict[str, Any]]) -> None:
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description=(
-            "Generate IRD-prefixed outputs on local CSV/JSONL prompt files. Triplet mode uses cascade "
+            "Generate baseline vs prefixed outputs on local CSV/JSONL prompt files. Triplet mode uses cascade "
             "decoding with intent -> risk -> decision adapters."
         )
     )
@@ -907,6 +937,8 @@ def _sample_rows_by_expected_decision_label(
             group = group[: int(limit)]
         selected.extend(group)
 
+    if max_allow_prompts is None and max_refuse_prompts is None:
+        selected.extend(indexed_by_label.get("other", []))
     selected.sort(key=lambda item: item[0])
     return [row for _, row in selected]
 
@@ -993,8 +1025,14 @@ def _load_jsonl_rows(
 
 def _crop_at_first_marker(text: str, markers: list[str]) -> str:
     cropped = str(text)
-    indices = [idx for idx in (cropped.find(marker) for marker in markers) if idx >= 0]
-    return cropped[: min(indices)] if indices else cropped
+    best_idx: int | None = None
+    for marker in list(markers):
+        idx = cropped.find(marker)
+        if idx >= 0 and (best_idx is None or idx < best_idx):
+            best_idx = idx
+    if best_idx is None:
+        return cropped
+    return cropped[:best_idx]
 
 
 def _strip_control_tokens(
@@ -1003,11 +1041,13 @@ def _strip_control_tokens(
     markers: Sequence[str] | None = None,
 ) -> str:
     cleaned = str(text)
-    control_markers = (
-        list(markers)
-        if markers is not None
-        else list(_prompt_format_markers(pt_utils.QWEN_CHATML_PROMPT_FORMAT, pt_utils.S1_DECODE_PROFILE).control)
-    )
+    control_markers = [
+        *(
+            list(markers)
+            if markers is not None
+            else list(_prompt_format_markers(pt_utils.QWEN_CHATML_PROMPT_FORMAT, pt_utils.S1_DECODE_PROFILE).control)
+        ),
+    ]
     for marker in control_markers:
         if marker and marker in cleaned:
             cleaned = cleaned.replace(marker, "")
@@ -1402,12 +1442,17 @@ def _build_cascade_prompt_text(*, base_prompt_text: str, prior_sections: list[st
     return str(base_prompt_text) + "\n".join(clean_sections) + "\n"
 
 
-def _normalize_ird_handoff_prefix(sections: dict[str, str]) -> str:
-    return "\n".join(
-        text
-        for text in (str(sections.get(slot_name, "")).strip() for slot_name in ("risk", "decision"))
-        if text
-    )
+def _normalize_ird_handoff_prefix(
+    sections: dict[str, str] | None,
+) -> str:
+    if not isinstance(sections, dict):
+        return ""
+    parts = []
+    for slot_name in ("risk", "decision"):
+        text = str(sections.get(slot_name, "")).strip()
+        if text:
+            parts.append(text)
+    return "\n".join(parts).strip()
 
 
 def _generate_ird_handoff_one(
@@ -1767,6 +1812,8 @@ def _generate_triplet_cascade_one(
     generated_sections: dict[str, str] = {}
     stage_debug: list[dict[str, Any]] = []
     prior_sections: list[str] = []
+    final_stage_full_ids: list[int] | None = None
+    final_stage_past_key_values = None
     decision_label = "unknown"
     intent_label = "unknown"
     intent_decision_label = "unknown"
@@ -1893,6 +1940,8 @@ def _generate_triplet_cascade_one(
         if str(slot_name) == "decision" and str(decision_decode_mode) != "forced_choice":
             if str(route_source) != "intent":
                 decision_label = _extract_decision_label_from_text(stage_text)
+        final_stage_full_ids = list(stage_result["full_ids"])
+        final_stage_past_key_values = stage_result["past_key_values"]
         debug_row = {
             "slot_name": str(slot_name),
             "slot_budget": _serialize_generation_budget(slot_budgets[str(slot_name)]),
@@ -1929,7 +1978,7 @@ def _generate_triplet_cascade_one(
     return cot, "", generated_sections, stage_debug
 
 
-def _extract_prefixed_route_debug(stage_debug: list[dict[str, Any]]) -> dict[str, Any]:
+def _extract_prefixed_route_debug(stage_debug: Any) -> dict[str, Any]:
     route = {
         "prefixed_route_source": "decision",
         "prefixed_intent_label": "unknown",
@@ -1941,7 +1990,11 @@ def _extract_prefixed_route_debug(stage_debug: list[dict[str, Any]]) -> dict[str
         "prefixed_answer_kvreuse_requested": False,
         "prefixed_answer_kvreuse_feasible": False,
     }
+    if not isinstance(stage_debug, list):
+        return route
     for item in stage_debug:
+        if not isinstance(item, dict):
+            continue
         if str(item.get("slot_name", "")) == "intent":
             route["prefixed_intent_label"] = str(item.get("intent_label", "unknown"))
             route["prefixed_intent_decision_label"] = str(item.get("intent_decision_label", "unknown"))
@@ -1991,6 +2044,7 @@ def _build_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
             decision_expected_allow += 1
             decision_overrefuse += int(decision_label == "refuse")
 
+    num_rows = float(len(rows))
     return {
         "num_examples": int(len(rows)),
         "prefixed_decision_label_counts": dict(sorted(decision_label_counts.items())),
@@ -2012,7 +2066,7 @@ def _build_minimal_result_row(
     *,
     row: dict[str, Any],
     prefixed_mode: str,
-    prefixed_sections: dict[str, str],
+    prefixed_sections: dict[str, str] | None,
     prefixed_route_debug: dict[str, Any],
     prefixed_cot: str = "",
     prefixed_answer: str = "",
@@ -2031,7 +2085,7 @@ def _build_minimal_result_row(
         "prefixed_intent_label": prefixed_route_debug.get("prefixed_intent_label", "unknown"),
         "prefixed_intent_decision_label": prefixed_route_debug.get("prefixed_intent_decision_label", "unknown"),
         "prefixed_decision_label": prefixed_route_debug.get("prefixed_decision_label", "unknown"),
-        "generated_ird": dict(prefixed_sections),
+        "generated_ird": dict(prefixed_sections) if isinstance(prefixed_sections, dict) else {},
         "prefixed_cot": str(prefixed_cot),
         "prefixed_answer": str(prefixed_answer),
         "ird_handoff_prefix": str(ird_handoff_prefix),
@@ -2058,13 +2112,14 @@ def _resolve_benign_harmful_label(row: dict[str, Any]) -> str:
 def _build_ird_result_row(
     *,
     row: dict[str, Any],
-    prefixed_sections: dict[str, str],
+    prefixed_sections: dict[str, str] | None,
 ) -> dict[str, Any]:
+    sections = prefixed_sections if isinstance(prefixed_sections, dict) else {}
     return {
         "prompt": str(row.get("raw_prompt", "")),
-        "i": str(prefixed_sections.get("intent", "")),
-        "r": str(prefixed_sections.get("risk", "")),
-        "d": str(prefixed_sections.get("decision", "")),
+        "i": str(sections.get("intent", "")),
+        "r": str(sections.get("risk", "")),
+        "d": str(sections.get("decision", "")),
         "dataset": str(row.get("dataset", "")),
         "label": _resolve_benign_harmful_label(row),
     }

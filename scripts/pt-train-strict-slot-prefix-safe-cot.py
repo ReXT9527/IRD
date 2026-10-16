@@ -32,7 +32,12 @@ from peft import PrefixTuningConfig, TaskType, get_peft_model
 
 
 def _load_local_module(module_name: str, file_path: Path):
+    existing = sys.modules.get(module_name)
+    if existing is not None:
+        return existing
     spec = importlib.util.spec_from_file_location(module_name, file_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Cannot load {module_name} from {file_path}")
     module = importlib.util.module_from_spec(spec)
     sys.modules[module_name] = module
     spec.loader.exec_module(module)
@@ -58,16 +63,26 @@ write_json = pt_utils.write_json
 write_jsonl = pt_utils.write_jsonl
 
 def _parse_marker_list(raw: str) -> list[str]:
-    return list(dict.fromkeys(marker for marker in (chunk.strip() for chunk in str(raw or "").split(",")) if marker))
+    markers: list[str] = []
+    for chunk in str(raw or "").split(","):
+        marker = chunk.strip()
+        if marker and marker not in markers:
+            markers.append(marker)
+    return markers
 
 
 def _special_token_markers_for_training(args, *, slot_names: tuple[str, ...]) -> list[str]:
-    markers = (
+    markers = [
         str(args.intent_tag_safe),
         str(args.intent_tag_harmful),
         *_parse_marker_list(getattr(args, "special_token_extra_markers", "")),
-    )
-    return list(dict.fromkeys(marker for marker in (str(marker).strip() for marker in markers) if marker))
+    ]
+    deduped: list[str] = []
+    for marker in markers:
+        marker = str(marker).strip()
+        if marker and marker not in deduped:
+            deduped.append(marker)
+    return deduped
 
 
 def _register_additional_special_tokens(tokenizer, markers: list[str]) -> dict[str, Any]:
@@ -315,22 +330,36 @@ def _parse_target_lengths(raw: str) -> list[int] | None:
     normalized = str(raw).strip().lower()
     if normalized in {"", "full", "none", "null", "all"}:
         return None
-    values = [int(chunk.strip()) for chunk in str(raw).split(",") if chunk.strip()]
-    if any(value <= 0 for value in values):
-        raise ValueError(f"target_lengths must be positive, got {values!r}")
+    values: list[int] = []
+    for chunk in str(raw).split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        value = int(chunk)
+        if value <= 0:
+            raise ValueError(f"target length must be positive, got {value}")
+        values.append(value)
     if not values:
         raise ValueError("target_lengths must contain at least one positive integer")
     return sorted(set(values))
 
 
 def _serialize_target_lengths(target_lengths: list[int] | None) -> list[int] | None:
-    return None if target_lengths is None else [int(x) for x in target_lengths]
+    if target_lengths is None:
+        return None
+    return [int(x) for x in target_lengths]
 
 
 def _parse_int_list(raw: str, *, expected_len: int | None = None) -> list[int]:
-    values = [int(chunk.strip()) for chunk in str(raw).split(",") if chunk.strip()]
-    if any(value <= 0 for value in values):
-        raise ValueError(f"Expected positive integers, got {values!r} from {raw!r}")
+    values: list[int] = []
+    for chunk in str(raw).split(","):
+        chunk = chunk.strip()
+        if not chunk:
+            continue
+        value = int(chunk)
+        if value <= 0:
+            raise ValueError(f"Expected positive integers, got {value} from {raw!r}")
+        values.append(value)
     if expected_len is not None and len(values) != int(expected_len):
         raise ValueError(f"Expected {expected_len} integers, got {len(values)} from {raw!r}")
     if not values:
@@ -355,11 +384,10 @@ def _parse_slot_names(raw: str) -> tuple[str, ...]:
 
 def _parse_train_slots(raw: str, *, slot_names: tuple[str, ...]) -> set[str]:
     value = str(raw).strip().lower()
-    allowed = {str(slot_name) for slot_name in slot_names}
     if value in {"", "all", "full", "*"}:
-        return allowed
+        return {str(slot_name) for slot_name in slot_names}
     selected = {chunk.strip().lower() for chunk in str(raw).split(",") if chunk.strip()}
-    unknown = sorted(selected.difference(allowed))
+    unknown = sorted(selected.difference({str(slot_name) for slot_name in slot_names}))
     if unknown:
         raise ValueError(f"Unknown train_slots {unknown!r}; expected subset of {slot_names!r} or all.")
     if not selected:
@@ -379,9 +407,10 @@ def _resolve_slot_virtual_tokens(
     if num_virtual_tokens is None:
         resolved = [int(x) for x in slot_lengths]
         return max(resolved), resolved
-    shared = int(num_virtual_tokens)
-    if shared <= 0:
-        raise ValueError(f"num_virtual_tokens must be positive, got {shared}")
+    else:
+        shared = int(num_virtual_tokens)
+        if shared <= 0:
+            raise ValueError(f"num_virtual_tokens must be positive, got {shared}")
     return shared, [shared for _ in slot_names]
 
 
@@ -389,7 +418,9 @@ def _normalize_rows(rows: list[dict[str, Any]], max_train_samples: int | None) -
     normalized: list[dict[str, Any]] = []
     for idx, row in enumerate(rows):
         prompt = str(row.get("prompt", "")).strip()
-        raw_sections = dict(row.get("safe_cot_sections", {}))
+        raw_sections = row.get("safe_cot_sections", {})
+        if not isinstance(raw_sections, dict):
+            raw_sections = {}
         explicit_sections: dict[str, str] = {}
         explicit_slot_fields_seen = False
         for slot_name in DEFAULT_TRIPLET_SLOT_NAMES:

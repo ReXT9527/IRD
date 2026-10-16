@@ -49,8 +49,14 @@ def normalize_triplet_section_name(raw: str) -> str:
 
 def _strip_section_header(segment_text: str, slot_name: str) -> str:
     text = str(segment_text)
-    header = TRIPLET_SLOT_HEADERS.get(str(slot_name).strip().lower())
-    return re.sub(rf"^\s*{header}:\s*", "", text, count=1) if header else text
+    slot = str(slot_name).strip().lower()
+    if slot == "intent":
+        return re.sub(r"^\s*Intent:\s*", "", text, count=1)
+    if slot == "risk":
+        return re.sub(r"^\s*Risk:\s*", "", text, count=1)
+    if slot == "decision":
+        return re.sub(r"^\s*Decision:\s*", "", text, count=1)
+    return text
 
 
 def _extract_triplet_segments(
@@ -75,7 +81,7 @@ def _extract_triplet_segments(
         ]
         return segments, "marker_split"
 
-    sections = dict(safe_cot_sections)
+    sections = dict(safe_cot_sections) if isinstance(safe_cot_sections, dict) else {}
     intent = str(sections.get("intent", "")).strip()
     risk = str(sections.get("risk", "")).strip()
     decision = str(sections.get("decision", "")).strip()
@@ -146,12 +152,15 @@ def build_triplet_cascade_prompt_suffix(
         raise ValueError(f"slot_name={slot_name!r} is not present in slot_names={ordered_slot_names!r}.")
 
     target_idx = ordered_slot_names.index(target_slot)
-    prefix = "\n".join(
-        text
-        for text in (str(section_texts.get(prev_slot, "")).strip() for prev_slot in ordered_slot_names[:target_idx])
-        if text
-    )
-    return f"{prefix}\n" if prefix else ""
+    lines: list[str] = []
+    for prev_slot in ordered_slot_names[:target_idx]:
+        prev_text = str(section_texts.get(prev_slot, "")).strip()
+        if prev_text:
+            lines.append(prev_text)
+
+    if lines:
+        return "\n".join(lines) + "\n"
+    return ""
 
 
 def compose_triplet_cot_text(
@@ -160,11 +169,13 @@ def compose_triplet_cot_text(
     slot_names: Sequence[str] = DEFAULT_TRIPLET_SLOT_NAMES,
 ) -> str:
     ordered_slot_names = tuple(str(name) for name in slot_names)
-    return "\n".join(
-        text
-        for text in (str(section_texts.get(slot_name, "")).strip() for slot_name in ordered_slot_names)
-        if text
-    )
+    lines: list[str] = []
+    for slot_name in ordered_slot_names:
+        slot_text = str(section_texts.get(slot_name, "")).strip()
+        if not slot_text:
+            continue
+        lines.append(slot_text)
+    return "\n".join(lines).strip()
 
 
 def parse_dtype(name: str) -> torch.dtype:
@@ -187,15 +198,24 @@ def set_seed(seed: int) -> None:
 
 
 def read_json(path: str | Path) -> dict[str, Any]:
-    return json.loads(Path(path).read_text(encoding="utf-8"))
+    with Path(path).open("r", encoding="utf-8") as rf:
+        return json.load(rf)
 
 
 def write_json(path: str | Path, payload: dict[str, Any] | list[dict[str, Any]]) -> None:
-    Path(path).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with Path(path).open("w", encoding="utf-8") as wf:
+        json.dump(payload, wf, ensure_ascii=False, indent=2)
 
 
 def read_jsonl(path: str | Path) -> list[dict[str, Any]]:
-    return [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
+    rows: list[dict[str, Any]] = []
+    with Path(path).open("r", encoding="utf-8") as rf:
+        for line in rf:
+            line = line.strip()
+            if not line:
+                continue
+            rows.append(json.loads(line))
+    return rows
 
 
 def write_jsonl(path: str | Path, rows: list[dict[str, Any]]) -> None:
